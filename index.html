@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex,nofollow">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' blob: data:; media-src blob: mediastream:; connect-src https://script.google.com https://script.googleusercontent.com; base-uri 'none'; form-action 'none'">
+<title>ตรวจนับคลัง Intergarde</title>
+<style>
+:root{--bg:#f4f5f7;--card:#fff;--ink:#16181d;--mute:#6b7280;--line:#e3e5ea;--pri:#1f4e79;--ok:#15803d;--okbg:#e7f6ec;--warn:#b45309;--warnbg:#fff4e0;--bad:#b91c1c;--badbg:#fdecec}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 -apple-system,"Segoe UI",Roboto,"Noto Sans Thai",sans-serif;-webkit-text-size-adjust:100%}
+#app{max-width:640px;margin:0 auto;padding:12px 12px 110px}
+h1{font-size:20px;margin:4px 0 2px}h2{font-size:17px;margin:18px 0 8px}
+.sub{color:var(--mute);font-size:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin:10px 0}
+.row{display:flex;gap:8px;align-items:center}.row.wrap{flex-wrap:wrap}.grow{flex:1;min-width:0}
+button,.btn{font:inherit;border:1px solid var(--line);background:#fff;color:var(--ink);border-radius:10px;padding:11px 14px;min-height:46px;cursor:pointer}
+button.pri{background:var(--pri);border-color:var(--pri);color:#fff;font-weight:600}
+button.big{width:100%;font-size:17px;min-height:54px}
+button.ghost{background:transparent;border-color:transparent;color:var(--pri);padding:8px}
+button.danger{color:var(--bad)}
+button:disabled{opacity:.5}
+input,select,textarea{font:inherit;font-size:16px;width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--ink)}
+label{display:block;font-size:14px;color:var(--mute);margin:10px 0 4px}
+.pill{display:inline-block;font-size:12px;padding:2px 8px;border-radius:99px;background:#eef1f5;color:#374151;white-space:nowrap}
+.pill.ok{background:var(--okbg);color:var(--ok)}.pill.warn{background:var(--warnbg);color:var(--warn)}.pill.bad{background:var(--badbg);color:var(--bad)}
+.list .it{display:flex;gap:10px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.list .it:first-child{border-top:0}
+.nm{font-size:15px;line-height:1.3;word-break:break-word}.sk{font-size:12px;color:var(--mute)}
+.qty{display:flex;align-items:center;gap:4px}
+.qty button{min-width:42px;min-height:42px;padding:0;font-size:20px}
+.qty input{width:58px;text-align:center;padding:8px 4px}
+.top{position:sticky;top:0;z-index:5;background:var(--bg);padding:6px 0 4px}
+.bar{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid var(--line);padding:10px 12px calc(10px + env(safe-area-inset-bottom));z-index:6}
+.bar .in{max-width:640px;margin:0 auto;display:flex;gap:8px;align-items:center}
+.scanbtns{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+#camBox{position:relative;border-radius:12px;overflow:hidden;background:#000;margin-top:8px;display:none}
+#camBox video{width:100%;display:block;max-height:46vh;object-fit:cover}
+#camBox .aim{position:absolute;left:8%;right:8%;top:50%;height:2px;background:#ef4444;box-shadow:0 0 8px #ef4444}
+#camBox .x{position:absolute;right:8px;top:8px;background:rgba(0,0,0,.55);color:#fff;border:0;min-height:38px}
+#camBox .hint{position:absolute;left:0;right:0;bottom:0;color:#fff;font-size:13px;text-align:center;padding:6px;background:linear-gradient(transparent,rgba(0,0,0,.6))}
+#fb{margin-top:8px;padding:10px 12px;border-radius:10px;font-size:15px;display:none}
+#fb.ok{display:block;background:var(--okbg);color:var(--ok)}#fb.warn{display:block;background:var(--warnbg);color:var(--warn)}#fb.bad{display:block;background:var(--badbg);color:var(--bad)}
+.tabs{display:flex;gap:6px;margin:12px 0 4px;overflow-x:auto}
+.tabs button{min-height:38px;padding:6px 12px;font-size:14px;white-space:nowrap}
+.tabs button.on{background:var(--pri);color:#fff;border-color:var(--pri)}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:20;display:flex;align-items:flex-end;justify-content:center}
+.modal.hidden{display:none}
+.sheet{background:#fff;width:100%;max-width:640px;max-height:88vh;overflow:auto;border-radius:16px 16px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom))}
+#toast{position:fixed;left:50%;top:14px;transform:translateX(-50%);background:#111;color:#fff;padding:10px 16px;border-radius:10px;font-size:15px;z-index:30;display:none;max-width:90%}
+.kpi{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.kpi div{background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px;text-align:center}
+.kpi b{display:block;font-size:22px}.kpi span{font-size:12px;color:var(--mute)}
+.diff{font-weight:700;min-width:46px;text-align:right}
+.spin{display:inline-block;width:16px;height:16px;border:2px solid #cbd5e1;border-top-color:var(--pri);border-radius:50%;animation:s 1s linear infinite;vertical-align:-3px}
+@keyframes s{to{transform:rotate(360deg)}}
+.chk{display:flex;gap:8px;align-items:center;padding:6px 0}.chk input{width:22px;height:22px}
+</style>
+</head>
+<body>
+<div id="app"><div class="card"><span class="spin"></span> กำลังโหลด…</div></div>
+<div id="modal" class="modal hidden"><div class="sheet" id="mb"></div></div>
+<div id="toast"></div>
+<input id="photo" type="file" accept="image/*" capture="environment" style="display:none">
+<script>
+var TOKEN = '';
+var API_URL = 'https://script.google.com/macros/s/AKfycbyDa28l07z1fxEsN4TZNFnD84gFoY6cqaT6bRS2adAdISYrgXU5BKIdB3TuTzY_8Li4/exec';
+window.onerror = function (m, src, line) {
+  var a = document.getElementById('app');
+  if (a) a.innerHTML = '<div class="card" style="color:#b91c1c">เกิดข้อผิดพลาดในหน้าเว็บ: ' + String(m).replace(/</g, '&lt;') + (line ? ' (บรรทัด ' + line + ')' : '') + '<br><small>แคปหน้าจอนี้ส่งให้ผู้ดูแลระบบ</small></div>';
+};
+</script>
+<script>
+/* ───────── พื้นฐาน ───────── */
+const $ = s => document.querySelector(s);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const call = async (fn, ...a) => {
+  if (window.__mock) return window.__mock[fn](...a);
+  let r, txt;
+  try {
+    r = await fetch(API_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ fn: fn, args: a }) });
+    txt = await r.text();
+  } catch (e) { throw new Error('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ ตรวจอินเทอร์เน็ตแล้วลองใหม่'); }
+  let j;
+  try { j = JSON.parse(txt); } catch (e) { throw new Error('เซิร์ฟเวอร์ตอบกลับไม่ถูกต้อง (' + r.status + ') — ตรวจว่า Deploy เวอร์ชันใหม่แล้ว และสิทธิ์เป็น "ทุกคน"'); }
+  if (!j.ok) throw new Error(j.error || 'เกิดข้อผิดพลาด');
+  return j.data;
+};
+const LS = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
+  del(k) { try { localStorage.removeItem(k); } catch (e) {} }
+};
+const lsKeys = pre => { try { return Object.keys(localStorage).filter(k => k.indexOf(pre) === 0); } catch (e) { return []; } };
+const norm = c => { c = String(c == null ? '' : c).trim().toUpperCase().replace(/\s+/g, ''); if (/^\d+$/.test(c)) c = c.replace(/^0+/, ''); return c; };
+let DEVICE = LS.get('whc.device', '');
+if (!DEVICE) { DEVICE = 'D' + Math.random().toString(36).slice(2, 8).toUpperCase(); LS.set('whc.device', DEVICE); }
+function toast(m, ms) { const t = $('#toast'); t.textContent = m; t.style.display = 'block'; clearTimeout(toast._t); toast._t = setTimeout(() => t.style.display = 'none', ms || 2200); }
+function modal(html) { $('#mb').innerHTML = html; $('#modal').classList.remove('hidden'); }
+function closeModal() { $('#modal').classList.add('hidden'); $('#mb').innerHTML = ''; }
+$('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
+function errBox(e) { return '<div class="card" style="color:var(--bad)">' + esc(e && e.message || e) + '</div>'; }
+let AC;
+function beep(ok) {
+  try {
+    AC = AC || new (window.AudioContext || window.webkitAudioContext)();
+    const o = AC.createOscillator(), g = AC.createGain();
+    o.frequency.value = ok ? 1650 : 300; g.gain.value = .12; o.connect(g); g.connect(AC.destination);
+    o.start(); o.stop(AC.currentTime + (ok ? .09 : .3));
+  } catch (e) {}
+  try { navigator.vibrate && navigator.vibrate(ok ? 40 : [80, 60, 80]); } catch (e) {}
+}
+const S = { boot: null, rd: null, rid: '', zone: '', counts: {}, unk: {}, tab: 'done', q: '' };
+const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+/* ───────── หน้าแรก ───────── */
+async function home() {
+  camStop(); S.rid = ''; S.rd = null;
+  $('#app').innerHTML = '<div class="card"><span class="spin"></span> กำลังโหลด…</div>';
+  try { S.boot = await call('whBoot', TOKEN); } catch (e) { $('#app').innerHTML = errBox(e); return; }
+  const b = S.boot, job = b.job || {};
+  const age = b.stockAt ? (Date.now() - Number(b.stockAt)) / 3600000 : 999;
+  const stockTxt = b.stockAt ? new Date(Number(b.stockAt)).toLocaleString('th-TH', {dateStyle: 'medium', timeStyle: 'short'}) : 'ยังไม่เคยดึง';
+  let h = `<h1>ตรวจนับคลัง</h1><div class="sub">${esc(b.staff.name)} · เทียบกับยอด${b.basis === 'physical' ? 'กายภาพ' : 'บัญชี'}ใน Zoho</div>`;
+  h += `<div class="card"><div class="row"><div class="grow"><b>ยอดจาก Zoho</b><div class="sub">อัปเดต: ${esc(stockTxt)}
+    ${age > 12 && b.stockAt ? ' <span class="pill warn">เกิน 12 ชม.</span>' : ''}</div></div>
+    <button id="btnRef" class="pri">ดึงยอดใหม่</button></div><div id="refMsg" class="sub" style="margin-top:6px">${job.running ? esc(job.msg) : ''}</div></div>`;
+  h += `<h2>รอบนับที่เปิดอยู่</h2>`;
+  if (!b.open.length) h += `<div class="card sub">ยังไม่มีรอบที่เปิดอยู่</div>`;
+  b.open.forEach(o => {
+    h += `<div class="card" data-rid="${esc(o.id)}"><div class="row"><div class="grow"><b>${esc(o.wh)}</b>
+      <div class="sub">${esc(o.id)} · ${esc(o.scope)}<br>เปิดโดย ${esc(o.openedBy)} ${esc(o.openedAt)} · ส่งแล้ว ${o.zones} โซน ${o.pieces} ชิ้น</div></div>
+      <button class="pri">เปิด</button></div></div>`;
+  });
+  h += `<button id="btnNew" class="big" style="margin-top:6px">+ เปิดรอบนับใหม่</button>`;
+  if (b.recent.length) {
+    h += `<h2>รอบที่ผ่านมา</h2><div class="card list">`;
+    b.recent.forEach(o => {
+      h += `<div class="it"><div class="grow"><div class="nm">${esc(o.wh)}</div><div class="sk">${esc(o.id)} · ${esc(o.closedAt)}</div></div>
+        ${o.status === 'ยกเลิก' ? '<span class="pill">ยกเลิก</span>' : `<span class="pill ok">ตรง ${o.match}</span> <span class="pill bad">ขาด ${o.short}</span> <span class="pill warn">เกิน ${o.over}</span>`}</div>`;
+    });
+    h += `</div>`;
+  }
+  $('#app').innerHTML = h;
+  $('#btnRef').onclick = refreshZoho;
+  $('#btnNew').onclick = newRound;
+  document.querySelectorAll('[data-rid]').forEach(el => el.onclick = () => roundView(el.dataset.rid));
+  if (job.running && Date.now() - job.beat < 10 * 60000) refreshZoho(true);
+}
+
+async function refreshZoho(resume) {
+  const btn = $('#btnRef'), msg = $('#refMsg');
+  if (btn) btn.disabled = true;
+  try {
+    let j = await call(resume === true ? 'whRefreshStep' : 'whStartRefresh', TOKEN);
+    while (j && j.running) {
+      if (msg) msg.innerHTML = '<span class="spin"></span> ' + esc(j.msg) + ' — เปิดหน้านี้ค้างไว้';
+      j = await call('whRefreshStep', TOKEN);
+    }
+    toast(j && j.msg || 'เสร็จแล้ว', 3000);
+    home();
+  } catch (e) { if (msg) msg.innerHTML = '<span style="color:var(--bad)">' + esc(e.message) + '</span>'; if (btn) btn.disabled = false; }
+}
+
+function newRound() {
+  const b = S.boot;
+  if (!b.stockAt) { toast('กด "ดึงยอดใหม่" จาก Zoho ก่อน'); return; }
+  const whs = b.warehouses.filter(w => !w.excluded);
+  modal(`<h2 style="margin-top:0">เปิดรอบนับใหม่</h2>
+    <label>คลัง (ตามที่ตั้งใน Zoho)</label>
+    <select id="nWh">${whs.map(w => `<option value="${esc(w.id)}">${esc(w.name)} · ${w.skus} รายการ ${w.qty} ชิ้น</option>`).join('')}</select>
+    <label>นับแบรนด์ไหน</label>
+    <div class="chk"><input type="checkbox" id="nAll" checked><span><b>ทุกแบรนด์</b> (นับทั้งคลัง)</span></div>
+    <div id="nBr" style="display:none">${b.brands.map(x => `<div class="chk"><input type="checkbox" value="${esc(x)}"><span>${esc(x)}</span></div>`).join('')}</div>
+    <label>หมายเหตุ (ถ้ามี)</label><input id="nNote" placeholder="เช่น นับสิ้นเดือน ต.ค.">
+    <p class="sub">ระบบจะถ่ายยอด Zoho ของคลังนี้ไว้ตอนเปิดรอบ ระหว่างนับควรงดรับ/จ่ายของในคลังนี้</p>
+    <div class="row"><button class="grow" onclick="closeModal()">ยกเลิก</button><button class="pri grow" id="nGo">เปิดรอบ</button></div>`);
+  $('#nAll').onchange = e => $('#nBr').style.display = e.target.checked ? 'none' : 'block';
+  $('#nGo').onclick = async () => {
+    const brands = $('#nAll').checked ? [] : [...document.querySelectorAll('#nBr input:checked')].map(x => x.value);
+    if (!$('#nAll').checked && !brands.length) { toast('เลือกอย่างน้อย 1 แบรนด์'); return; }
+    $('#nGo').disabled = true; $('#nGo').innerHTML = '<span class="spin"></span>';
+    try { const r = await call('whOpenRound', TOKEN, $('#nWh').value, brands, $('#nNote').value); closeModal(); toast('เปิดรอบ ' + r.id); roundView(r.id); }
+    catch (e) { toast(e.message, 4000); $('#nGo').disabled = false; $('#nGo').textContent = 'เปิดรอบ'; }
+  };
+}
+
+/* ───────── รอบนับ ───────── */
+async function roundView(rid) {
+  camStop(); S.rid = rid;
+  $('#app').innerHTML = '<div class="card"><span class="spin"></span> กำลังโหลดรอบ…</div>';
+  try { S.rd = await call('whRoundData', TOKEN, rid); } catch (e) { $('#app').innerHTML = errBox(e); return; }
+  buildIndex();
+  const r = S.rd.round, zs = S.rd.zones;
+  const mine = lsKeys('whc.c.' + rid + '.').map(k => k.slice(('whc.c.' + rid + '.').length));
+  let h = `<div class="top"><button class="ghost" onclick="home()">‹ กลับ</button></div>
+    <h1>${esc(r.wh)}</h1><div class="sub">${esc(r.id)} · ${esc(r.scope)} · ${esc(r.status)}<br>ยอด Zoho ณ ${esc(r.zohoAt)} · ${S.rd.snap.length} รายการที่มีสต๊อก</div>`;
+  if (r.status === 'เปิดอยู่') {
+    h += `<div class="card"><label style="margin-top:0">นับโซน / ชั้นวาง</label>
+      <input id="zName" list="zl" placeholder="เช่น ชั้น A, ห้องโชว์, ทั้งคลัง" value="${esc(LS.get('whc.lastzone', ''))}">
+      <datalist id="zl">${[...new Set(zs.map(z => z.zone).concat(mine))].map(z => `<option value="${esc(z)}">`).join('')}</datalist>
+      <button class="pri big" id="zGo" style="margin-top:10px">เริ่มนับโซนนี้</button>
+      <div class="sub" style="margin-top:6px">หลายคนนับพร้อมกันได้ คนละโซน ระบบรวมยอดให้ตอนปิดรอบ</div></div>`;
+  }
+  h += `<h2>ส่งยอดแล้ว</h2><div class="card list">${zs.length ? zs.map(z => `<div class="it"><div class="grow"><div class="nm">${esc(z.zone)}</div>
+    <div class="sk">${esc(z.counter)} · ${esc(z.at)}${z.device === DEVICE ? ' · เครื่องนี้' : ''}</div></div><b>${z.pcs}</b>&nbsp;ชิ้น</div>`).join('') : '<div class="sub">ยังไม่มี</div>'}</div>`;
+  h += `<button class="big pri" id="rRes">ดูผลต่าง${r.status === 'เปิดอยู่' ? ' / ปิดรอบ' : ''}</button>`;
+  if (r.status === 'เปิดอยู่') h += `<button class="big danger" id="rCancel" style="margin-top:8px">ยกเลิกรอบนี้</button>`;
+  $('#app').innerHTML = h;
+  if ($('#zGo')) $('#zGo').onclick = () => { const z = $('#zName').value.trim(); if (!z) { toast('ใส่ชื่อโซน'); return; } LS.set('whc.lastzone', z); countView(z); };
+  $('#rRes').onclick = () => resultView(rid);
+  if ($('#rCancel')) $('#rCancel').onclick = async () => {
+    if (!confirm('ยกเลิกรอบ ' + rid + '? ยอดที่ส่งแล้วจะไม่ถูกใช้')) return;
+    try { await call('whCancelRound', TOKEN, rid); toast('ยกเลิกแล้ว'); home(); } catch (e) { toast(e.message, 4000); }
+  };
+}
+
+function buildIndex() {
+  const d = S.rd;
+  S.items = {}; d.cat.forEach(c => S.items[c[0]] = { id: c[0], sku: c[1], name: c[2], brand: c[3] });
+  S.sys = {}; d.snap.forEach(s => S.sys[s[0]] = d.basis === 'physical' ? s[2] : s[1]);
+  S.codes = d.codes || {};
+}
+
+/* ───────── หน้านับ ───────── */
+function lsKey() { return 'whc.c.' + S.rid + '.' + S.zone; }
+function save() { LS.set(lsKey(), { c: S.counts, u: S.unk, t: Date.now() }); }
+
+function countView(zone) {
+  S.zone = zone;
+  const d = LS.get(lsKey(), null);
+  S.counts = d ? d.c || {} : {}; S.unk = d ? d.u || {} : {}; S.tab = 'done'; S.q = '';
+  const r = S.rd.round;
+  $('#app').innerHTML = `
+    <div class="top"><div class="row"><button class="ghost" id="cBack">‹ รอบนับ</button><div class="grow sub" style="text-align:right">${esc(r.wh)} · <b>${esc(zone)}</b></div></div></div>
+    <div class="scanbtns"><button class="pri" id="bCam">สแกนกล้อง</button><button id="bPhoto">ถ่ายรูปบาร์โค้ด</button></div>
+    <div id="camBox"><video id="vid" playsinline muted autoplay></video><div class="aim"></div><button class="x" id="bCamX">ปิดกล้อง</button>
+      <div class="hint">เล็งเส้นแดงตรงบาร์โค้ด · ชิ้นถัดไปรุ่นเดียวกัน ยกกล้องออกแล้วเล็งใหม่</div></div>
+    <div class="row" style="margin-top:8px"><input id="code" class="grow" inputmode="text" autocomplete="off" placeholder="พิมพ์บาร์โค้ด / SKU / ชื่อรุ่น" enterkeyhint="go"><button id="bCode">นับ</button></div>
+    <div id="fb"></div>
+    <div class="tabs" id="tabs"></div>
+    <div id="lst" class="card list"></div>
+    <div class="bar"><div class="in"><div class="grow"><b id="tot">0</b> ชิ้น <span class="sub" id="totItems"></span></div>
+      <button id="bSend" class="pri">ส่งยอดโซนนี้</button></div></div>`;
+  $('#cBack').onclick = () => roundView(S.rid);
+  $('#bCam').onclick = camStart;
+  $('#bCamX').onclick = camStop;
+  $('#bPhoto').onclick = () => { $('#photo').value = ''; $('#photo').click(); };
+  $('#bCode').onclick = typed;
+  $('#code').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); typed(); } });
+  $('#bSend').onclick = submitZone;
+  if (LS.get('whc.camBlocked', false)) fb('warn', 'เครื่องนี้เคยเปิดกล้องสดไม่ได้ ใช้ "ถ่ายรูปบาร์โค้ด" หรือพิมพ์รหัสแทน');
+  renderList();
+}
+
+function fb(kind, msg) { const el = $('#fb'); if (!el) return; el.className = kind; el.innerHTML = msg; }
+
+function typed() {
+  const v = $('#code').value.trim();
+  if (!v) return;
+  $('#code').value = '';
+  const n = norm(v);
+  if (S.codes[n] && S.codes[n].length) return handleCode(v);
+  // ค้นจาก SKU/ชื่อ
+  const q = v.toLowerCase();
+  const hits = Object.values(S.items).filter(it => norm(it.sku) === n);
+  if (hits.length === 1) return add(hits[0].id, 1, 'พิมพ์');
+  const like = Object.values(S.items).filter(it => it.sku.toLowerCase().includes(q) || it.name.toLowerCase().includes(q));
+  if (!like.length) { if (/^\d{6,}$/.test(n)) return handleCode(v); fb('bad', 'ไม่พบ "' + esc(v) + '"'); beep(false); return; }
+  pickItem(like, 'เลือกสินค้า "' + esc(v) + '"', id => add(id, 1, 'พิมพ์'));
+}
+
+function handleCode(raw, src) {
+  const n = norm(raw);
+  if (!n) return;
+  let ids = (S.codes[n] || []).filter(id => S.items[id]);
+  if (!ids.length) {
+    const bySku = Object.values(S.items).filter(it => norm(it.sku) === n);
+    ids = bySku.map(it => it.id);
+  }
+  if (ids.length === 1) return add(ids[0], 1, src);
+  if (ids.length > 1) {
+    const inRound = ids.filter(id => S.sys[id] != null);
+    if (inRound.length === 1) return add(inRound[0], 1, src);
+    beep(true);
+    return pickItem(ids.map(id => S.items[id]), 'บาร์โค้ด ' + esc(raw) + ' ตรงกับหลายรุ่น เลือกรุ่นที่ถืออยู่', id => add(id, 1, src));
+  }
+  unknownCode(raw);
+}
+
+function add(id, d, src) {
+  const it = S.items[id];
+  S.counts[id] = Math.max(0, (S.counts[id] || 0) + d);
+  if (!S.counts[id]) delete S.counts[id];
+  save();
+  const sys = S.sys[id];
+  const c = S.counts[id] || 0;
+  if (d > 0) {
+    beep(true);
+    const scopeOut = sys == null;
+    fb(scopeOut ? 'warn' : 'ok', `<b>+1</b> ${esc(it.name)}<br><span class="sk">${esc(it.sku)} · โซนนี้ ${c} ชิ้น${scopeOut ? ' · <b>ไม่มีในยอด Zoho ของคลังนี้</b>' : ' · Zoho ทั้งคลัง ' + sys}</span>`);
+  }
+  S.flash = id;
+  renderList();
+}
+
+function unknownCode(raw) {
+  beep(false);
+  fb('bad', 'ไม่รู้จักรหัส ' + esc(raw));
+  pickItem(Object.values(S.items), `ไม่รู้จักรหัส <b>${esc(raw)}</b><br><span class="sub">ค้นหารุ่นที่ถืออยู่ เลือกครั้งเดียว ระบบจำให้ทุกเครื่อง</span>`, id => {
+    S.codes[norm(raw)] = [id];
+    call('whLearnCode', TOKEN, raw, id).catch(e => toast('จำรหัสไม่สำเร็จ: ' + e.message, 4000));
+    add(id, 1, 'จับคู่');
+  }, () => { const n = norm(raw); S.unk[n] = (S.unk[n] || 0) + 1; save(); fb('warn', 'นับรหัส ' + esc(raw) + ' ไว้ก่อน (ไม่รู้จัก)'); renderList(); });
+}
+
+function pickItem(list, title, onPick, onSkip) {
+  const draw = q => {
+    q = (q || '').toLowerCase();
+    let l = list.filter(it => !q || it.sku.toLowerCase().includes(q) || it.name.toLowerCase().includes(q));
+    l.sort((a, b) => ((S.sys[b.id] != null) - (S.sys[a.id] != null)) || a.sku.localeCompare(b.sku));
+    $('#pkL').innerHTML = l.slice(0, 60).map(it => `<div class="it" data-id="${esc(it.id)}" style="cursor:pointer"><div class="grow"><div class="nm">${esc(it.name)}</div>
+      <div class="sk">${esc(it.sku)} · ${esc(it.brand)}${S.sys[it.id] != null ? ' · Zoho ' + S.sys[it.id] : ''}</div></div><span class="pill">เลือก</span></div>`).join('')
+      || '<div class="sub">ไม่พบ</div>';
+    document.querySelectorAll('#pkL [data-id]').forEach(el => el.onclick = () => { closeModal(); onPick(el.dataset.id); });
+  };
+  modal(`<div style="margin-bottom:8px">${title}</div>
+    ${list.length > 6 ? '<input id="pkQ" placeholder="ค้นหาชื่อรุ่น / SKU">' : ''}
+    <div id="pkL" class="list" style="margin-top:6px"></div>
+    <div class="row" style="margin-top:10px"><button class="grow" id="pkX">ปิด</button>${onSkip ? '<button class="grow" id="pkS">นับไว้ก่อน (ไม่รู้จัก)</button>' : ''}</div>`);
+  draw('');
+  if ($('#pkQ')) { $('#pkQ').oninput = e => draw(e.target.value); if (!isIOS) $('#pkQ').focus(); }
+  $('#pkX').onclick = closeModal;
+  if (onSkip) $('#pkS').onclick = () => { closeModal(); onSkip(); };
+}
+
+function renderList() {
+  const ids = Object.keys(S.counts), unk = Object.keys(S.unk);
+  const pcs = ids.reduce((a, k) => a + S.counts[k], 0) + unk.reduce((a, k) => a + S.unk[k], 0);
+  const notYet = Object.keys(S.sys).filter(id => !S.counts[id] && S.sys[id] > 0);
+  $('#tot').textContent = pcs;
+  $('#totItems').textContent = '· ' + (ids.length + unk.length) + ' รายการ';
+  $('#tabs').innerHTML = [['done', 'นับแล้ว (' + (ids.length + unk.length) + ')'], ['todo', 'ยังไม่นับในโซนนี้ (' + notYet.length + ')']]
+    .map(t => `<button data-t="${t[0]}" class="${S.tab === t[0] ? 'on' : ''}">${t[1]}</button>`).join('') +
+    `<input id="lq" placeholder="กรอง" value="${esc(S.q)}" style="min-width:110px;padding:6px 10px">`;
+  document.querySelectorAll('#tabs [data-t]').forEach(b => b.onclick = () => { S.tab = b.dataset.t; renderList(); });
+  $('#lq').oninput = e => { S.q = e.target.value; drawRows(); };
+  drawRows();
+}
+function drawRows() {
+  const q = S.q.toLowerCase();
+  const m = it => !q || it.sku.toLowerCase().includes(q) || it.name.toLowerCase().includes(q);
+  let h = '';
+  if (S.tab === 'done') {
+    const ids = Object.keys(S.counts).filter(id => m(S.items[id]));
+    if (S.flash && ids.includes(S.flash)) { ids.splice(ids.indexOf(S.flash), 1); ids.unshift(S.flash); }
+    Object.keys(S.unk).forEach(c => {
+      h += `<div class="it"><div class="grow"><div class="nm" style="color:var(--warn)">รหัสไม่รู้จัก ${esc(c)}</div><div class="sk"><button class="ghost" data-fix="${esc(c)}">เลือกรุ่น</button></div></div>
+        <div class="qty"><button data-u="${esc(c)}" data-d="-1">−</button><input value="${S.unk[c]}" readonly><button data-u="${esc(c)}" data-d="1">+</button></div></div>`;
+    });
+    ids.forEach(id => h += rowHtml(id, S.counts[id]));
+    if (!h) h = '<div class="sub">ยังไม่ได้นับ เริ่มสแกนได้เลย สินค้าไม่มีบาร์โค้ดเลือกจากแท็บ "ยังไม่นับในโซนนี้" หรือพิมพ์ชื่อรุ่น</div>';
+  } else {
+    const ids = Object.keys(S.sys).filter(id => !S.counts[id] && S.sys[id] > 0 && S.items[id] && m(S.items[id]))
+      .sort((a, b) => S.items[a].sku.localeCompare(S.items[b].sku));
+    ids.slice(0, 200).forEach(id => h += rowHtml(id, 0));
+    if (ids.length > 200) h += `<div class="sub">แสดง 200 จาก ${ids.length} รายการ ใช้ช่องกรองเพื่อหา</div>`;
+    if (!h) h = '<div class="sub">ไม่มีรายการ</div>';
+  }
+  $('#lst').innerHTML = h;
+  $('#lst').querySelectorAll('[data-id]').forEach(b => b.onclick = () => add(b.dataset.id, Number(b.dataset.d), 'กด'));
+  $('#lst').querySelectorAll('[data-u]').forEach(b => b.onclick = () => { const c = b.dataset.u; S.unk[c] = Math.max(0, (S.unk[c] || 0) + Number(b.dataset.d)); if (!S.unk[c]) delete S.unk[c]; save(); renderList(); });
+  $('#lst').querySelectorAll('[data-fix]').forEach(b => b.onclick = () => {
+    const c = b.dataset.fix;
+    pickItem(Object.values(S.items), 'รหัส ' + esc(c) + ' คือรุ่นไหน', id => {
+      S.codes[c] = [id]; call('whLearnCode', TOKEN, c, id).catch(() => {});
+      S.counts[id] = (S.counts[id] || 0) + S.unk[c]; delete S.unk[c]; save(); renderList();
+    });
+  });
+  $('#lst').querySelectorAll('input[data-set]').forEach(inp => inp.onchange = () => {
+    const id = inp.dataset.set, v = Math.max(0, Math.round(Number(inp.value) || 0));
+    if (v) S.counts[id] = v; else delete S.counts[id];
+    save(); renderList();
+  });
+}
+function rowHtml(id, c) {
+  const it = S.items[id] || { name: id, sku: '', brand: '' }, sys = S.sys[id];
+  return `<div class="it"${S.flash === id ? ' style="background:var(--okbg)"' : ''}><div class="grow"><div class="nm">${esc(it.name)}</div>
+    <div class="sk">${esc(it.sku)} · Zoho ${sys == null ? '<span class="pill warn">ไม่มีในคลังนี้</span>' : sys}</div></div>
+    <div class="qty"><button data-id="${esc(id)}" data-d="-1">−</button><input data-set="${esc(id)}" inputmode="numeric" value="${c}"><button data-id="${esc(id)}" data-d="1">+</button></div></div>`;
+}
+
+async function submitZone() {
+  const lines = Object.keys(S.counts).map(id => ({ id, qty: S.counts[id] })).concat(Object.keys(S.unk).map(c => ({ code: c, qty: S.unk[c] })));
+  const pcs = lines.reduce((a, l) => a + l.qty, 0);
+  if (!lines.length && !confirm('โซนนี้ไม่มีของเลย ส่งยอด 0 ชิ้น?')) return;
+  const unk = Object.keys(S.unk).length;
+  modal(`<h2 style="margin-top:0">ส่งยอดโซน "${esc(S.zone)}"</h2>
+    <p>${lines.length} รายการ · <b>${pcs} ชิ้น</b>${unk ? `<br><span style="color:var(--warn)">มีรหัสไม่รู้จัก ${unk} รหัส — ควรเลือกรุ่นก่อนส่ง</span>` : ''}</p>
+    <p class="sub">ถ้าเครื่องนี้เคยส่งโซนนี้แล้ว ยอดใหม่จะแทนยอดเดิม แก้แล้วส่งซ้ำได้จนกว่าจะปิดรอบ</p>
+    <div class="row"><button class="grow" onclick="closeModal()">กลับไปนับต่อ</button><button class="pri grow" id="sGo">ส่งยอด</button></div>`);
+  $('#sGo').onclick = async () => {
+    $('#sGo').disabled = true; $('#sGo').innerHTML = '<span class="spin"></span>';
+    try {
+      await call('whSubmitZone', TOKEN, S.rid, S.zone, DEVICE, lines.length ? lines : [{ code: '', qty: 0 }]);
+      closeModal(); camStop(); toast('ส่งยอดแล้ว ' + pcs + ' ชิ้น'); roundView(S.rid);
+    } catch (e) { toast(e.message, 4000); $('#sGo').disabled = false; $('#sGo').textContent = 'ส่งยอด'; }
+  };
+}
+
+/* ───────── ผลต่าง ───────── */
+async function resultView(rid) {
+  camStop();
+  $('#app').innerHTML = '<div class="card"><span class="spin"></span> กำลังรวมยอดทุกโซน…</div>';
+  let res;
+  try { res = await call('whPreview', TOKEN, rid); } catch (e) { $('#app').innerHTML = errBox(e); return; }
+  const r = res.round, t = res.totals, open = r.status === 'เปิดอยู่';
+  let f = 'diff';
+  const draw = () => {
+    const rows = res.rows.filter(x => f === 'all' || (f === 'diff' ? x.status !== 'ตรง' : x.status === f));
+    $('#rl').innerHTML = rows.map(x => {
+      const cls = x.status === 'ขาด' ? 'bad' : x.status === 'ตรง' ? 'ok' : 'warn';
+      return `<div class="it"><div class="grow"><div class="nm">${esc(x.name)}</div><div class="sk">${esc(x.sku)} · <span class="pill ${cls}">${esc(x.status)}</span>
+        · Zoho ${x.sys} / นับ ${x.cnt}${x.zones.length ? '<br>' + esc(x.zones.join(', ')) : ''}</div></div>
+        <div class="diff" style="color:var(--${cls === 'ok' ? 'ok' : cls === 'bad' ? 'bad' : 'warn'})">${x.diff > 0 ? '+' : ''}${x.diff}</div></div>`;
+    }).join('') || '<div class="sub">ไม่มีรายการ</div>';
+    document.querySelectorAll('#rf button').forEach(b => b.classList.toggle('on', b.dataset.f === f));
+  };
+  const notCounted = res.zones.length === 0;
+  $('#app').innerHTML = `<div class="top"><button class="ghost" id="bk">‹ รอบนับ</button></div>
+    <h1>ผลต่าง ${esc(r.wh)}</h1><div class="sub">${esc(r.id)} · ${esc(r.scope)} · เทียบยอด${res.basis === 'physical' ? 'กายภาพ' : 'บัญชี'} Zoho ณ ${esc(r.zohoAt)}</div>
+    <div class="kpi" style="margin-top:10px"><div><b style="color:var(--ok)">${t.match}</b><span>ตรง</span></div>
+      <div><b style="color:var(--bad)">${t.short}</b><span>ขาด ${t.shortPcs} ชิ้น</span></div>
+      <div><b style="color:var(--warn)">${t.over}</b><span>เกิน ${t.overPcs} ชิ้น</span></div></div>
+    <div class="sub" style="margin-top:6px">Zoho ${t.sys} ชิ้น · นับได้ ${t.cnt} ชิ้น · อื่นๆ ${t.other} รายการ · ${res.zones.length} โซน: ${esc(res.zones.map(z => z.zone + ' (' + z.counter + ')').join(', '))}</div>
+    ${open ? '<div class="card sub" style="margin-top:10px">รายการ "ขาด" รวมของที่อยู่ในโซนที่ยังไม่มีใครนับด้วย ตรวจว่านับครบทุกโซนก่อนปิดรอบ</div>' : ''}
+    <div class="tabs" id="rf">${[['diff', 'มีผลต่าง'], ['ขาด', 'ขาด'], ['เกิน', 'เกิน'], ['นอกขอบเขต', 'นอกขอบเขต'], ['รหัสไม่รู้จัก', 'ไม่รู้จัก'], ['ตรง', 'ตรง'], ['all', 'ทั้งหมด']]
+      .map(x => `<button data-f="${x[0]}">${x[1]}</button>`).join('')}</div>
+    <div class="card list" id="rl"></div>
+    ${open ? `<div class="card"><label style="margin-top:0">หมายเหตุถึงบัญชี</label><input id="cNote" placeholder="เช่น ของขาด 2 ชิ้นอยู่ที่บูธ Event A">
+      <button class="pri big" id="bClose" style="margin-top:10px" ${notCounted ? 'disabled' : ''}>ปิดรอบ + ส่งสรุปให้บัญชี</button>
+      <div class="sub" style="margin-top:6px">ระบบไม่แก้ยอดใน Zoho บัญชีจะตรวจแล้วทำ Inventory Adjustment เอง</div></div>`
+      : `<div class="card sub">ปิดรอบแล้ว ${esc(r.closedAt)} โดย ${esc(r.closedBy)}</div>`}`;
+  $('#bk').onclick = () => roundView(rid);
+  document.querySelectorAll('#rf button').forEach(b => b.onclick = () => { f = b.dataset.f; draw(); });
+  draw();
+  if ($('#bClose')) $('#bClose').onclick = async () => {
+    if (!confirm('ปิดรอบ ' + rid + '? หลังปิดแล้วส่งยอดเพิ่มไม่ได้')) return;
+    $('#bClose').disabled = true; $('#bClose').innerHTML = '<span class="spin"></span> กำลังปิดรอบ';
+    try {
+      const out = await call('whCloseRound', TOKEN, rid, $('#cNote').value);
+      lsKeys('whc.c.' + rid + '.').forEach(k => LS.del(k));
+      toast(out.emailed ? 'ปิดรอบแล้ว ส่งอีเมลบัญชีแล้ว' : 'ปิดรอบแล้ว (ส่งอีเมลไม่สำเร็จ: ' + (out.emailError || 'ไม่ได้ตั้งอีเมล') + ')', 5000);
+      resultView(rid);
+    } catch (e) { toast(e.message, 4000); $('#bClose').disabled = false; $('#bClose').textContent = 'ปิดรอบ + ส่งสรุปให้บัญชี'; }
+  };
+}
+
+/* ───────── กล้อง / รูป / เครื่องสแกน ───────── */
+const FORMATS = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'itf', 'qr_code'];
+let cam = { stream: null, reader: null, timer: 0, last: '', seen: 0, on: false };
+let zxP = null;
+function loadZX() {
+  if (window.ZXing) return Promise.resolve();
+  return zxP || (zxP = new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = 'zxing.min.js';
+    s.onload = res; s.onerror = () => { zxP = null; rej(new Error('โหลดตัวอ่านบาร์โค้ดไม่ได้ (ตรวจอินเทอร์เน็ต)')); };
+    document.head.appendChild(s);
+  }));
+}
+function zxHints() {
+  const Z = window.ZXing, h = new Map();
+  h.set(Z.DecodeHintType.POSSIBLE_FORMATS, [Z.BarcodeFormat.EAN_13, Z.BarcodeFormat.EAN_8, Z.BarcodeFormat.UPC_A, Z.BarcodeFormat.UPC_E,
+    Z.BarcodeFormat.CODE_128, Z.BarcodeFormat.CODE_39, Z.BarcodeFormat.ITF, Z.BarcodeFormat.QR_CODE]);
+  h.set(Z.DecodeHintType.TRY_HARDER, true);
+  return h;
+}
+function zxReader() { return new window.ZXing.BrowserMultiFormatReader(zxHints(), 120); }
+async function nativeFormats() {
+  if (!('BarcodeDetector' in window)) return null;
+  try { const f = (await BarcodeDetector.getSupportedFormats()).filter(x => FORMATS.includes(x)); return f.length ? f : null; } catch (e) { return null; }
+}
+function seen(code) {
+  const now = Date.now();
+  if (!code) { if (now - cam.seen > 700) cam.last = ''; return; }
+  if (code === cam.last) { cam.seen = now; return; }
+  cam.last = code; cam.seen = now;
+  handleCode(code, 'กล้อง');
+}
+async function camStart() {
+  if (cam.on) return;
+  const box = $('#camBox'), v = $('#vid');
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return camFail(new Error('NotSupported'));
+  box.style.display = 'block'; cam.on = true; cam.last = '';
+  fb('ok', '<span class="spin"></span> กำลังเปิดกล้อง…');
+  const constraints = { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false };
+  try {
+    const nf = await nativeFormats();
+    if (nf) {
+      cam.stream = await navigator.mediaDevices.getUserMedia(constraints);
+      v.srcObject = cam.stream; await v.play();
+      const det = new BarcodeDetector({ formats: nf });
+      const loop = async () => {
+        if (!cam.on) return;
+        try { const r = await det.detect(v); seen(r.length ? r[0].rawValue : null); } catch (e) {}
+        cam.timer = setTimeout(loop, 130);
+      };
+      loop();
+    } else {
+      // iPhone: ส่งเฟรมจากวิดีโอให้ ZXing เอง (กันบั๊ก decodeFromConstraints ที่สร้างกรอบภาพก่อนวิดีโอพร้อม)
+      await loadZX();
+      const Z = window.ZXing, mfr = new Z.MultiFormatReader();
+      mfr.setHints(zxHints());
+      cam.stream = await navigator.mediaDevices.getUserMedia(constraints);
+      v.srcObject = cam.stream; await v.play();
+      const cv = document.createElement('canvas'), g = cv.getContext('2d', { willReadFrequently: true });
+      const loop = () => {
+        if (!cam.on) return;
+        if (v.videoWidth) {
+          if (cv.width !== v.videoWidth) { cv.width = v.videoWidth; cv.height = v.videoHeight; }
+          g.drawImage(v, 0, 0, cv.width, cv.height);
+          try {
+            const r = mfr.decodeWithState(new Z.BinaryBitmap(new Z.HybridBinarizer(new Z.HTMLCanvasElementLuminanceSource(cv))));
+            seen(r.getText());
+          } catch (e) { seen(null); }
+        }
+        cam.timer = setTimeout(loop, 150);
+      };
+      loop();
+    }
+    LS.set('whc.camBlocked', false);
+    fb('ok', 'กล้องพร้อม เล็งบาร์โค้ดได้เลย');
+  } catch (e) { camFail(e); }
+}
+function camFail(e) {
+  camStop();
+  const n = e && (e.name || e.message) || '';
+  LS.set('whc.camBlocked', true);
+  fb('warn', (/NotAllowed|Permission|Security/i.test(n)
+    ? 'ไม่ได้รับอนุญาตให้ใช้กล้องสดในหน้านี้'
+    : /NotSupported/.test(n) ? 'เบราว์เซอร์นี้เปิดกล้องสดในหน้านี้ไม่ได้' : 'เปิดกล้องไม่ได้ (' + esc(n) + ')') +
+    ' — ใช้ปุ่ม <b>ถ่ายรูปบาร์โค้ด</b> แทนได้ทุกเครื่อง');
+}
+function camStop() {
+  cam.on = false; clearTimeout(cam.timer);
+  try { cam.reader && cam.reader.reset(); } catch (e) {}
+  try { cam.stream && cam.stream.getTracks().forEach(t => t.stop()); } catch (e) {}
+  cam.reader = null; cam.stream = null;
+  const box = $('#camBox'); if (box) box.style.display = 'none';
+  const v = $('#vid'); if (v) v.srcObject = null;
+}
+
+$('#photo').addEventListener('change', async e => {
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
+  fb('ok', '<span class="spin"></span> กำลังอ่านบาร์โค้ดจากรูป…');
+  try {
+    const codes = await decodeImage(f);
+    if (!codes.length) { beep(false); fb('bad', 'อ่านบาร์โค้ดในรูปไม่ได้ ถ่ายใหม่ให้บาร์โค้ดอยู่กลางภาพ ชัด ไม่สะท้อนแสง'); return; }
+    const known = codes.find(c => S.codes[norm(c)]);
+    handleCode(known || codes[0], 'รูป');
+  } catch (err) { fb('bad', esc(err.message)); }
+});
+function loadImg(src) { return new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('เปิดรูปไม่ได้')); i.src = src; }); }
+async function decodeImage(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await loadImg(url);
+    const nf = await nativeFormats();
+    if (nf) {
+      try { const r = await new BarcodeDetector({ formats: nf }).detect(img); if (r.length) return [...new Set(r.map(x => x.rawValue))]; } catch (e) {}
+    }
+    await loadZX();
+    const reader = zxReader();
+    const c = document.createElement('canvas'), ctx = c.getContext('2d');
+    for (const max of [1600, 1100, 2400]) {
+      for (const rot of [0, 90]) {
+        const s = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+        const w = Math.round(img.naturalWidth * s), h = Math.round(img.naturalHeight * s);
+        c.width = rot ? h : w; c.height = rot ? w : h;
+        ctx.save(); if (rot) { ctx.translate(h, 0); ctx.rotate(Math.PI / 2); } ctx.drawImage(img, 0, 0, w, h); ctx.restore();
+        try { const r = await reader.decodeFromImageUrl(c.toDataURL('image/jpeg', .92)); if (r) return [r.getText()]; } catch (e) {}
+      }
+    }
+    return [];
+  } finally { URL.revokeObjectURL(url); }
+}
+
+// เครื่องสแกนบลูทูธ (ทำงานแบบคีย์บอร์ด) — ยิงได้เลยเมื่อไม่ได้พิมพ์อยู่ในช่องใด
+let wedge = { buf: '', t: 0 };
+document.addEventListener('keydown', e => {
+  if (!$('#code')) return;
+  const tag = (e.target.tagName || '').toLowerCase();
+  if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+  if (!$('#modal').classList.contains('hidden')) return;
+  const now = Date.now();
+  if (now - wedge.t > 80) wedge.buf = '';
+  wedge.t = now;
+  if (e.key === 'Enter') { if (wedge.buf.length >= 4) { handleCode(wedge.buf, 'สแกนเนอร์'); } wedge.buf = ''; e.preventDefault(); return; }
+  if (e.key.length === 1) wedge.buf += e.key;
+});
+document.addEventListener('visibilitychange', () => { if (document.hidden) camStop(); });
+
+function start() {
+  // token อยู่หลังเครื่องหมาย # (ไม่ถูกส่งไปที่ GitHub และไม่ติดไปกับลิงก์อื่น) — รองรับ ?t= / ?admin= แล้วย้ายไปไว้หลัง #
+  const q = new URLSearchParams(location.search), h = new URLSearchParams(location.hash.slice(1));
+  let t = h.get('t') || q.get('t') || q.get('admin') || '';
+  if (t) { LS.set('whc.token', t); if (!h.get('t') || location.search) history.replaceState(null, '', location.pathname + '#t=' + encodeURIComponent(t)); }
+  else t = LS.get('whc.token', '');
+  TOKEN = t;
+  if (!TOKEN && !window.__mock) { $('#app').innerHTML = '<div class="card">เปิดหน้านี้จาก<b>ลิงก์ส่วนตัว</b>ที่ได้รับจากผู้ดูแลระบบ</div>'; return; }
+  home();
+}
+start();
+</script>
+</body>
+</html>
