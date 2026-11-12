@@ -113,6 +113,7 @@ window.onerror = function (m, src, line) {
 
   function fromLines(lines) {
     const text = lines.join('\n');
+    if (/No\.?\s*of\s*prs/i.test(text)) return fromLinesPairs(lines, text);
     const out = { ciNo: '', poNo: '', total: null, lines: [], warnings: [] };
     const m1 = text.match(/Invoice\s*(?:No\.?|Number|#)\s*:?\s*([A-Z0-9][A-Z0-9\-\/_.]{3,})/i); if (m1) out.ciNo = m1[1];
     const m2 = text.match(/P\.?\s*O\.?\s*(?:No\.?|Number|#)?\s*:\s*([A-Z0-9][A-Z0-9\-\/_.]{2,})/i) || text.match(/\b(TPO-\d+)\b/); if (m2) out.poNo = m2[1];
@@ -155,6 +156,45 @@ window.onerror = function (m, src, line) {
     out.lines = out.lines.filter(l => { if (by[l.sku]) { by[l.sku].qty += l.qty; return false; } by[l.sku] = l; return true; });
     const sum = out.lines.reduce((n, l) => n + l.qty, 0);
     if (out.total !== null && out.total !== sum) out.warnings.push('ยอดรวมที่อ่านได้ ' + sum + ' ชิ้น ไม่ตรงกับยอดรวมใน CI ' + out.total + ' ชิ้น');
+    if (!out.lines.length) out.warnings.push('อ่านรายการสินค้าไม่ได้ — ไฟล์อาจเป็นภาพสแกน ให้ใช้ไฟล์ Excel หรือพิมพ์รายการเอง');
+    return out;
+  }
+
+
+  // แบบ Masters of Gloves: Quantity (ชุด) · U/M (Set3) · No. of prs (คู่) · ราคา/ส่วนลด/ยอดเงินแบบยุโรป (152,880 / 55,00)
+  // นับเป็น "คู่" (หน่วยใน Zoho = pcs ต่อคู่)
+  function fromLinesPairs(lines, text) {
+    const out = { ciNo: '', poNo: '', total: null, lines: [], warnings: [], unit: 'คู่' };
+    const eu = s => Number(String(s).replace(/\./g, '').replace(',', '.'));
+    const md = text.match(/Document\s*number[^\n]*\n\s*(\d{5,})/i) || text.match(/Invoice\s*(?:No\.?|Number|#)\s*:?\s*([A-Z0-9][A-Z0-9\-\/_.]{3,})/i); if (md) out.ciNo = md[1];
+    const mp = text.match(/\b(TPO-\d+)\b/); if (mp) out.poNo = mp[1];
+    const re = /^([A-Z0-9][A-Z0-9\-\/_.]{3,})\s+(.+?)\s+(\d+)\s+(Set(\d+)|Pair|Prs|Pcs|Pc|Stk|Each|Ea)\s+(\d+)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s*$/i;
+    let bad = 0, last = null;
+    lines.forEach(line => {
+      const t = line.trim().replace(/\s+/g, ' ');
+      const m = t.match(re);
+      if (!m || !/\d/.test(m[1])) {
+        if (last && t && !/HS-?code|COO:/i.test(t) && t.split(' ').length <= 6 && !/^(Article|MASTERS|COMMERCIAL|Page|Document|Client)/i.test(t)) last.desc += ' ' + t;
+        last = /HS-?code/i.test(t) ? null : last;
+        return;
+      }
+      const sets = Number(m[3]), per = m[5] ? Number(m[5]) : 1, prs = Number(m[6]);
+      const price = eu(m[7]), disc = eu(m[8]), amt = eu(m[9]);
+      if (prs !== sets * per) bad++;
+      if (price > 0 && Math.abs(price * sets * (1 - disc / 100) - amt) > Math.max(0.05, amt * 0.002)) bad++;
+      last = { sku: m[1].toUpperCase(), desc: m[2], qty: prs, sets, unit: price, amount: amt, check: 'pairs' };
+      out.lines.push(last);
+    });
+    const by = {};
+    out.lines = out.lines.filter(l => { if (by[l.sku]) { by[l.sku].qty += l.qty; return false; } by[l.sku] = l; return true; });
+    const net = text.match(/Net\s+EUR\s+([\d.,]+)/i);
+    if (net) {
+      const sum = out.lines.reduce((n, l) => n + (l.amount || 0), 0);
+      if (Math.abs(sum - eu(net[1])) > 0.05) out.warnings.push('ยอดเงินรวมรายการที่อ่านได้ ' + sum.toFixed(2) + ' ไม่ตรงกับ Net EUR ' + net[1] + ' — อาจอ่านตกบางรายการ');
+      else out.total = out.lines.reduce((n, l) => n + l.qty, 0);
+    }
+    if (bad) out.warnings.push(bad + ' รายการตัวเลขไม่สอดคล้องกัน (ชุด × คู่ หรือ ราคา × ส่วนลด) — ตรวจกับเอกสาร');
+    out.warnings.push('ไฟล์นี้นับเป็น "คู่" (No. of prs) ไม่ใช่จำนวนชุด');
     if (!out.lines.length) out.warnings.push('อ่านรายการสินค้าไม่ได้ — ไฟล์อาจเป็นภาพสแกน ให้ใช้ไฟล์ Excel หรือพิมพ์รายการเอง');
     return out;
   }
@@ -387,10 +427,10 @@ async function matchLines(lines) {
 }
 function drawReview() {
   const L = RV.lines, sum = L.reduce((n, l) => n + (Number(l.qty) || 0), 0), miss = L.filter(l => !l.itemId).length;
-  const t = RV.r.total;
+  const t = RV.r.total, U = RV.r.unit || 'ชิ้น';
   let h = '';
   if (t != null) h += `<div class="card" style="background:${t === sum ? 'var(--okbg)' : 'var(--warnbg)'};color:${t === sum ? 'var(--ok)' : 'var(--warn)'}">` +
-    (t === sum ? `✓ รวม ${sum} ชิ้น ตรงกับยอดรวมในไฟล์ CI` : `⚠ รวม ${sum} ชิ้น แต่ยอดรวมในไฟล์ CI = ${t} ชิ้น — ตรวจรายการที่อ่านพลาด`) + '</div>';
+    (t === sum ? `✓ รวม ${sum} ${U} ตรงกับยอดในไฟล์ CI` : `⚠ รวม ${sum} ${U} แต่ยอดรวมในไฟล์ CI = ${t} ${U} — ตรวจรายการที่อ่านพลาด`) + '</div>';
   (RV.r.warnings || []).filter(w => t == null || !/ไม่ตรงกับยอดรวม/.test(w)).forEach(w => h += `<div class="card" style="background:var(--warnbg);color:var(--warn)">${esc(w)}</div>`);
   if (miss) h += `<div class="card sub">${miss} รายการไม่พบใน Zoho — ยังนับได้ด้วยปุ่ม + / − หรือสแกนแล้วเลือกรายการนั้น</div>`;
   $('#vSum').innerHTML = h;
