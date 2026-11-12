@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
 <meta name="referrer" content="no-referrer">
 <meta name="robots" content="noindex,nofollow">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' blob: data:; media-src blob: mediastream:; connect-src https://script.google.com https://script.googleusercontent.com; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'unsafe-inline'; img-src 'self' blob: data:; media-src blob: mediastream:; connect-src https://script.google.com https://script.googleusercontent.com; worker-src 'self' blob:; base-uri 'none'; form-action 'none'">
 <title>ตรวจนับคลัง Intergarde</title>
 <style>
 :root{--bg:#f4f5f7;--card:#fff;--ink:#16181d;--mute:#6b7280;--line:#e3e5ea;--pri:#1f4e79;--ok:#15803d;--okbg:#e7f6ec;--warn:#b45309;--warnbg:#fff4e0;--bad:#b91c1c;--badbg:#fdecec}
@@ -73,6 +73,125 @@ window.onerror = function (m, src, line) {
 };
 </script>
 <script>
+/* อ่านรายการสินค้าจาก Commercial Invoice (PDF ข้อความ / Excel) — ใช้ได้ทั้งใน browser และ node */
+(function (root) {
+  const MONEY = /^\(?\$?\d{1,3}(,\d{3})*(\.\d{2,4})$|^\d+\.\d{2,4}$/;
+  const num = s => Number(String(s).replace(/[,$()]/g, ''));
+  const isSku = t => /^[A-Z0-9][A-Z0-9\-\.\/_]{3,}$/i.test(t) && /\d/.test(t) && /[A-Z]/i.test(t) && !MONEY.test(t);
+
+  // รวม text item ของ pdf.js เป็นบรรทัด (y ใกล้กัน) แล้วเว้นวรรคตามระยะห่าง
+  function linesFromItems(items) {
+    const rows = [];
+    items.filter(i => String(i.str).trim()).sort((a, b) => (a.page - b.page) || (b.y - a.y) || (a.x - b.x)).forEach(i => {
+      let r = rows.find(r => r.page === i.page && Math.abs(r.y - i.y) <= Math.max(2, (i.h || 8) * 0.35));
+      if (!r) { r = { page: i.page, y: i.y, items: [] }; rows.push(r); }
+      r.items.push(i);
+    });
+    rows.sort((a, b) => (a.page - b.page) || (b.y - a.y));
+    return rows.map(r => {
+      r.items.sort((a, b) => a.x - b.x);
+      let s = '', end = null;
+      r.items.forEach(i => {
+        const cw = i.w && i.str.length ? i.w / i.str.length : 4;
+        if (end !== null) s += (i.x - end > cw * 0.6) ? '  ' : '';
+        s += i.str; end = i.x + (i.w || cw * i.str.length);
+      });
+      return s;
+    });
+  }
+
+  function parseRow(tokens) {
+    let k = 0;
+    if (/^\d{1,3}\.?$/.test(tokens[0]) && tokens.length > 2) k = 1;           // ลำดับที่
+    let si = tokens.findIndex((t, i) => i >= k && i <= k + 1 && isSku(t));  // SKU อยู่ต้นบรรทัด
+    if (si < 0 && k === 1 && /^[A-Z][A-Z0-9\-_]{4,}$/.test(tokens[1]) && !/^(SUB)?TOTALS?$|^(AMOUNT|FREIGHT|SHIPPING|DISCOUNT|INSURANCE|HANDLING|BALANCE)$/.test(tokens[1])) si = 1;   // SKU ตัวอักษรล้วน เช่น LENSCLEANER (ต้องมีเลขลำดับนำหน้า)
+    if (si < 0) return null;
+    const mi = [];
+    tokens.forEach((t, i) => { if (i > si && MONEY.test(t)) mi.push(i); });
+    return { si, mi };
+  }
+
+  function fromLines(lines) {
+    const text = lines.join('\n');
+    const out = { ciNo: '', poNo: '', total: null, lines: [], warnings: [] };
+    const m1 = text.match(/Invoice\s*(?:No\.?|Number|#)\s*:?\s*([A-Z0-9][A-Z0-9\-\/_.]{3,})/i); if (m1) out.ciNo = m1[1];
+    const m2 = text.match(/P\.?\s*O\.?\s*(?:No\.?|Number|#)?\s*:\s*([A-Z0-9][A-Z0-9\-\/_.]{2,})/i) || text.match(/\b(TPO-\d+)\b/); if (m2) out.poNo = m2[1];
+    let pend = null;
+    const finish = (tokens, info) => {
+      const sku = tokens[info.si].toUpperCase();
+      const m = info.mi;
+      const unit = num(tokens[m[0]]), amount = m.length > 1 ? num(tokens[m[1]]) : NaN;
+      let qtyTok = null;
+      for (let i = m[0] - 1; i > info.si; i--) { const g = tokens[i].match(/(\d+)$/); if (g) { qtyTok = { i, n: Number(g[1]), glued: g[1] !== tokens[i] }; break; } }
+      let qty = null, how = '';
+      if (unit > 0 && amount > 0 && Math.abs(amount / unit - Math.round(amount / unit)) < 0.01) { qty = Math.round(amount / unit); how = 'amount'; }
+      if (qtyTok && (!qty || (!qtyTok.glued && qtyTok.n !== qty && qty === null))) { qty = qtyTok.n; how = 'qty'; }
+      if (qty === null && qtyTok) { qty = qtyTok.n; how = 'qty'; }
+      const descEnd = qtyTok ? qtyTok.i : m[0];
+      let desc = tokens.slice(info.si + 1, descEnd).join(' ');
+      if (qtyTok && qtyTok.glued) desc += ' ' + tokens[qtyTok.i].replace(/\d+$/, '');
+      out.lines.push({ sku, desc: desc.trim(), qty: qty || 0, unit: unit || null, amount: isNaN(amount) ? null : amount, check: how });
+    };
+    lines.forEach(line => {
+      const tokens = line.trim().split(/\s+/).filter(Boolean);
+      if (!tokens.length) return;
+      const tq = line.match(/(?:^|\s)(\d[\d,]*)\s+TOTAL\b/i) || line.match(/TOTAL\s*(?:QTY|QUANTITY|PCS|UNITS?)\s*:?\s*(\d[\d,]*)/i);
+      if (tq && out.total === null) out.total = num(tq[1]);
+      if (pend) {
+        pend.tokens = pend.tokens.concat(tokens);
+        const info = parseRow(pend.tokens);
+        if (info && info.mi.length) { finish(pend.tokens, info); pend = null; return; }
+        if (++pend.n > 2) pend = null;
+        return;
+      }
+      const info = parseRow(tokens);
+      if (!info) return;
+      if (info.mi.length) finish(tokens, info);
+      else pend = { tokens, n: 0 };
+    });
+    out.lines = out.lines.filter(l => l.qty > 0);
+    // รวม SKU ซ้ำ
+    const by = {};
+    out.lines = out.lines.filter(l => { if (by[l.sku]) { by[l.sku].qty += l.qty; return false; } by[l.sku] = l; return true; });
+    const sum = out.lines.reduce((n, l) => n + l.qty, 0);
+    if (out.total !== null && out.total !== sum) out.warnings.push('ยอดรวมที่อ่านได้ ' + sum + ' ชิ้น ไม่ตรงกับยอดรวมใน CI ' + out.total + ' ชิ้น');
+    if (!out.lines.length) out.warnings.push('อ่านรายการสินค้าไม่ได้ — ไฟล์อาจเป็นภาพสแกน ให้ใช้ไฟล์ Excel หรือพิมพ์รายการเอง');
+    return out;
+  }
+
+  // Excel/CSV: rows = array ของ array
+  function fromRows(rows) {
+    const out = { ciNo: '', poNo: '', total: null, lines: [], warnings: [] };
+    const flat = rows.map(r => r.map(c => String(c == null ? '' : c).trim()));
+    const all = flat.map(r => r.join('  ')).join('\n');
+    const m1 = all.match(/Invoice\s*(?:No\.?|Number|#)\s*:?\s*([A-Z0-9][A-Z0-9\-\/_.]{3,})/i); if (m1) out.ciNo = m1[1];
+    const m2 = all.match(/\b(TPO-\d+)\b/) || all.match(/P\.?O\.?\s*(?:No\.?)?\s*:\s*([A-Z0-9\-]{3,})/i); if (m2) out.poNo = m2[1];
+    let h = -1, cs = -1, cq = -1, cd = -1;
+    for (let i = 0; i < Math.min(flat.length, 40) && h < 0; i++) {
+      const r = flat[i].map(c => c.toLowerCase());
+      const q = r.findIndex(c => /^(qty|q'ty|quantity|จำนวน|pcs|units?)\b/.test(c));
+      const s = r.findIndex(c => /(^item|sku|part|code|model|style|article|รหัส)/.test(c) && !/desc/.test(c));
+      if (q >= 0 && s >= 0) { h = i; cq = q; cs = s; cd = r.findIndex(c => /desc|รายการ|name/.test(c)); }
+    }
+    if (h < 0) { out.warnings.push('หาแถวหัวตาราง (Item/SKU + Qty) ในไฟล์ Excel ไม่เจอ'); return out; }
+    for (let i = h + 1; i < flat.length; i++) {
+      const r = flat[i], sku = (r[cs] || '').toUpperCase(), q = num(r[cq]);
+      if (!sku) { if (/total/i.test(r.join(' '))) { const t = r.map(num).filter(n => n > 0); if (t.length && out.total === null) out.total = num(r[cq]) || null; } continue; }
+      if (/total/i.test(sku)) { out.total = q || null; continue; }
+      if (!(q > 0)) continue;
+      out.lines.push({ sku, desc: cd >= 0 ? r[cd] : '', qty: Math.round(q), unit: null, amount: null, check: 'excel' });
+    }
+    const sum = out.lines.reduce((n, l) => n + l.qty, 0);
+    if (out.total && out.total !== sum) out.warnings.push('ยอดรวมที่อ่านได้ ' + sum + ' ชิ้น ไม่ตรงกับยอดรวมใน CI ' + out.total + ' ชิ้น');
+    if (!out.lines.length) out.warnings.push('อ่านรายการสินค้าจาก Excel ไม่ได้');
+    return out;
+  }
+
+  root.CIParse = { linesFromItems, fromLines, fromRows };
+  if (typeof module !== 'undefined') module.exports = root.CIParse;
+})(typeof window !== 'undefined' ? window : globalThis);
+</script>
+<script>
 /* ───────── พื้นฐาน ───────── */
 const $ = s => document.querySelector(s);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -135,6 +254,7 @@ async function home() {
       <button class="pri">เปิด</button></div></div>`;
   });
   h += `<button id="btnNew" class="big" style="margin-top:6px">+ เปิดรอบนับใหม่</button>`;
+  h += `<button id="btnRc" class="big" style="margin-top:8px">+ ตรวจรับสินค้าเข้า (เทียบ CI)</button>`;
   if (b.recent.length) {
     h += `<h2>รอบที่ผ่านมา</h2><div class="card list">`;
     b.recent.forEach(o => {
@@ -146,6 +266,7 @@ async function home() {
   $('#app').innerHTML = h;
   $('#btnRef').onclick = refreshZoho;
   $('#btnNew').onclick = newRound;
+  $('#btnRc').onclick = receiptNew;
   document.querySelectorAll('[data-rid]').forEach(el => el.onclick = () => roundView(el.dataset.rid));
   if (job.running && Date.now() - job.beat < 10 * 60000) refreshZoho(true);
 }
@@ -187,6 +308,137 @@ function newRound() {
   };
 }
 
+/* ───────── ตรวจรับสินค้าเข้า (เทียบ CI) ───────── */
+const isRC = () => !!(S.rd && /^รับเข้า/.test(S.rd.round.scope));
+const SYS = () => isRC() ? 'CI' : 'Zoho';
+const CDN = 'https://cdnjs.cloudflare.com/ajax/libs/';
+function loadLib(src) {
+  return new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => rej(new Error('โหลด ' + src + ' ไม่ได้ ตรวจอินเทอร์เน็ต')); document.head.appendChild(s); });
+}
+function receiptNew() {
+  const b = S.boot;
+  if (!b.stockAt) { toast('กด "ดึงยอดใหม่" จาก Zoho ก่อน (ใช้จับคู่รหัสสินค้า)'); return; }
+  const whs = b.warehouses.filter(w => !w.excluded);
+  modal(`<h2 style="margin-top:0">ตรวจรับสินค้าเข้า (เทียบ CI)</h2>
+    <label>รับเข้าคลัง</label>
+    <select id="rWh">${whs.map(w => `<option value="${esc(w.id)}">${esc(w.name)}</option>`).join('')}</select>
+    <label>ไฟล์ Commercial Invoice (PDF หรือ Excel)</label>
+    <input id="rFile" type="file" accept=".pdf,.xlsx,.xls,.csv,application/pdf">
+    <p class="sub">ระบบอ่านรหัสสินค้าและจำนวนจากไฟล์ แล้วให้ตรวจทานก่อนเริ่มนับ · PDF ต้องเป็นไฟล์จากระบบของซัพพลายเออร์ (ไม่ใช่ภาพสแกน)</p>
+    <div id="rMsg"></div>
+    <div class="row" style="margin-top:6px"><button class="grow" onclick="closeModal()">ยกเลิก</button><button class="grow" id="rManual">ไม่มีไฟล์ — พิมพ์รายการเอง</button></div>`);
+  $('#rFile').onchange = e => { const f = e.target.files && e.target.files[0]; if (f) readCI(f, $('#rWh').value); };
+  $('#rManual').onclick = () => { const w = $('#rWh').value; closeModal(); reviewCI({ ciNo: '', poNo: '', total: null, lines: [], warnings: [] }, null, w); };
+}
+async function readCI(file, whId) {
+  $('#rMsg').innerHTML = '<span class="spin"></span> กำลังอ่านไฟล์…';
+  try {
+    let r;
+    if (/\.pdf$/i.test(file.name) || file.type === 'application/pdf') {
+      if (!window.pdfjsLib) {
+        await loadLib(CDN + 'pdf.js/3.11.174/pdf.min.js');
+        pdfjsLib.GlobalWorkerOptions.workerPort = new Worker(URL.createObjectURL(new Blob(["importScripts('" + CDN + "pdf.js/3.11.174/pdf.worker.min.js')"], { type: 'text/javascript' })));
+      }
+      const doc = await pdfjsLib.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isEvalSupported: false, disableFontFace: true }).promise;
+      const items = [];
+      for (let p = 1; p <= doc.numPages; p++) {
+        const tc = await (await doc.getPage(p)).getTextContent();
+        tc.items.forEach(i => items.push({ str: i.str, x: i.transform[4], y: i.transform[5], w: i.width, h: i.height, page: p }));
+      }
+      r = CIParse.fromLines(CIParse.linesFromItems(items));
+    } else {
+      if (!window.XLSX) await loadLib(CDN + 'xlsx/0.18.5/xlsx.full.min.js');
+      const wb = XLSX.read(new Uint8Array(await file.arrayBuffer()), { type: 'array' });
+      wb.SheetNames.forEach(n => {
+        const x = CIParse.fromRows(XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: false, defval: '' }));
+        if (!r || x.lines.length > r.lines.length) r = x;
+      });
+    }
+    closeModal();
+    reviewCI(r, file, whId);
+  } catch (e) { $('#rMsg').innerHTML = '<div style="color:var(--bad)">อ่านไฟล์ไม่ได้: ' + esc(e.message) + '</div>'; }
+}
+const RV = { r: null, file: null, whId: '', lines: [] };
+async function reviewCI(r, file, whId) {
+  camStop();
+  Object.assign(RV, { r, file, whId, lines: r.lines.map(l => Object.assign({}, l)) });
+  $('#app').innerHTML = '<div class="card"><span class="spin"></span> กำลังจับคู่รหัสสินค้ากับ Zoho…</div>';
+  try { await matchLines(RV.lines); } catch (e) { toast(e.message, 4000); }
+  const wh = (S.boot.warehouses.find(w => w.id === whId) || {}).name || '';
+  $('#app').innerHTML = `<div class="top"><button class="ghost" id="vBack">‹ ยกเลิก</button></div>
+    <h1>ตรวจทานรายการจาก CI</h1>
+    <div class="sub">${file ? 'ไฟล์: ' + esc(file.name) + ' · ' : ''}รับเข้า ${esc(wh)}<br>เทียบจำนวนกับเอกสาร CI ให้ตรงก่อนเริ่มนับ แก้จำนวนได้ที่ช่องตัวเลข</div>
+    <div class="card"><div class="row"><div class="grow"><label style="margin-top:0">เลขที่ CI</label><input id="vCI" value="${esc(r.ciNo)}" placeholder="เช่น CI26-SO19790"></div>
+      <div class="grow"><label style="margin-top:0">เลขที่ PO</label><input id="vPO" value="${esc(r.poNo)}" placeholder="เช่น TPO-00178"></div></div></div>
+    <div id="vSum"></div>
+    <div class="card list" id="vList"></div>
+    <button class="big" id="vAdd" style="margin-top:4px">+ เพิ่มรายการ</button>
+    <div class="bar"><div class="in"><div class="grow"><b id="vTot">0</b> ชิ้น <span class="sub" id="vCnt"></span></div><button id="vGo" class="pri">เริ่มตรวจรับ</button></div></div>`;
+  $('#vBack').onclick = home;
+  $('#vAdd').onclick = addLine;
+  $('#vGo').onclick = startReceipt;
+  drawReview();
+}
+async function matchLines(lines) {
+  const todo = lines.filter(l => l.itemId === undefined);
+  if (!todo.length) return;
+  const m = await call('whReceiptMatch', TOKEN, todo.map(l => ({ sku: l.sku })));
+  todo.forEach((l, i) => Object.assign(l, { itemId: m[i].itemId, zSku: m[i].zSku, zName: m[i].zName }));
+}
+function drawReview() {
+  const L = RV.lines, sum = L.reduce((n, l) => n + (Number(l.qty) || 0), 0), miss = L.filter(l => !l.itemId).length;
+  const t = RV.r.total;
+  let h = '';
+  if (t != null) h += `<div class="card" style="background:${t === sum ? 'var(--okbg)' : 'var(--warnbg)'};color:${t === sum ? 'var(--ok)' : 'var(--warn)'}">` +
+    (t === sum ? `✓ รวม ${sum} ชิ้น ตรงกับยอดรวมในไฟล์ CI` : `⚠ รวม ${sum} ชิ้น แต่ยอดรวมในไฟล์ CI = ${t} ชิ้น — ตรวจรายการที่อ่านพลาด`) + '</div>';
+  (RV.r.warnings || []).filter(w => t == null || !/ไม่ตรงกับยอดรวม/.test(w)).forEach(w => h += `<div class="card" style="background:var(--warnbg);color:var(--warn)">${esc(w)}</div>`);
+  if (miss) h += `<div class="card sub">${miss} รายการไม่พบใน Zoho — ยังนับได้ด้วยปุ่ม + / − หรือสแกนแล้วเลือกรายการนั้น</div>`;
+  $('#vSum').innerHTML = h;
+  $('#vList').innerHTML = L.map((l, i) => `<div class="it"><div class="grow"><div class="nm">${esc(l.zName || l.desc || l.sku)}</div>
+      <div class="sk">CI: ${esc(l.sku)} · ${l.itemId ? '<span class="pill ok">Zoho ' + esc(l.zSku) + '</span>' : '<span class="pill warn">ไม่พบใน Zoho</span>'}</div></div>
+      <div class="qty"><input data-q="${i}" inputmode="numeric" value="${Number(l.qty) || 0}"><button data-x="${i}" title="ลบ">×</button></div></div>`).join('') || '<div class="sub">ยังไม่มีรายการ กด "+ เพิ่มรายการ"</div>';
+  $('#vList').querySelectorAll('[data-q]').forEach(el => el.onchange = () => { RV.lines[+el.dataset.q].qty = Math.max(0, Math.round(Number(el.value) || 0)); drawReview(); });
+  $('#vList').querySelectorAll('[data-x]').forEach(el => el.onclick = () => { RV.lines.splice(+el.dataset.x, 1); drawReview(); });
+  $('#vTot').textContent = sum;
+  $('#vCnt').textContent = '· ' + L.length + ' รายการ';
+}
+function addLine() {
+  modal(`<h2 style="margin-top:0">เพิ่มรายการ</h2>
+    <label>รหัสสินค้า (SKU ตาม CI)</label><input id="aSku" placeholder="เช่น GZ-01-031" autocapitalize="characters">
+    <label>รายละเอียด (ไม่บังคับ)</label><input id="aDesc">
+    <label>จำนวนตาม CI</label><input id="aQty" inputmode="numeric" value="1">
+    <div class="row" style="margin-top:12px"><button class="grow" onclick="closeModal()">ยกเลิก</button><button class="pri grow" id="aGo">เพิ่ม</button></div>`);
+  $('#aGo').onclick = async () => {
+    const sku = $('#aSku').value.trim().toUpperCase(), qty = Math.round(Number($('#aQty').value) || 0);
+    if (!sku || qty <= 0) { toast('ใส่รหัสและจำนวน'); return; }
+    const l = { sku, desc: $('#aDesc').value.trim(), qty };
+    $('#aGo').disabled = true;
+    try { await matchLines([l]); } catch (e) {}
+    RV.lines.push(l); closeModal(); drawReview();
+  };
+}
+async function fileB64(f) {
+  const u = new Uint8Array(await f.arrayBuffer()); let s = '';
+  for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+async function startReceipt() {
+  const L = RV.lines.filter(l => Number(l.qty) > 0);
+  if (!L.length) { toast('ยังไม่มีรายการ'); return; }
+  const sum = L.reduce((n, l) => n + Number(l.qty), 0);
+  if (RV.r.total != null && RV.r.total !== sum && !confirm('ยอดรวม ' + sum + ' ชิ้น ไม่ตรงกับยอดรวมใน CI ' + RV.r.total + ' ชิ้น\nเริ่มตรวจรับต่อหรือไม่?')) return;
+  const btn = $('#vGo'); btn.disabled = true; btn.innerHTML = '<span class="spin"></span>';
+  try {
+    const wh = S.boot.warehouses.find(w => w.id === RV.whId) || {};
+    const ci = { ciNo: $('#vCI').value.trim(), poNo: $('#vPO').value.trim(), total: RV.r.total, whName: wh.name || '',
+      lines: L.map(l => ({ sku: l.sku, desc: l.desc || '', qty: Number(l.qty), itemId: l.itemId || null })) };
+    if (RV.file && RV.file.size <= 10 * 1024 * 1024) Object.assign(ci, { fileName: RV.file.name, mime: RV.file.type || 'application/octet-stream', fileB64: await fileB64(RV.file) });
+    const r = await call('whOpenReceipt', TOKEN, RV.whId, ci);
+    toast('เปิดรอบตรวจรับ ' + r.id + ' · ' + r.pcs + ' ชิ้น', 3000);
+    roundView(r.id);
+  } catch (e) { toast(e.message, 5000); btn.disabled = false; btn.textContent = 'เริ่มตรวจรับ'; }
+}
+
 /* ───────── รอบนับ ───────── */
 async function roundView(rid) {
   camStop(); S.rid = rid;
@@ -196,7 +448,7 @@ async function roundView(rid) {
   const r = S.rd.round, zs = S.rd.zones;
   const mine = lsKeys('whc.c.' + rid + '.').map(k => k.slice(('whc.c.' + rid + '.').length));
   let h = `<div class="top"><button class="ghost" onclick="home()">‹ กลับ</button></div>
-    <h1>${esc(r.wh)}</h1><div class="sub">${esc(r.id)} · ${esc(r.scope)} · ${esc(r.status)}<br>ยอด Zoho ณ ${esc(r.zohoAt)} · ${S.rd.snap.length} รายการที่มีสต๊อก</div>`;
+    <h1>${esc(r.wh)}</h1><div class="sub">${esc(r.id)} · ${esc(r.scope)} · ${esc(r.status)}<br>${isRC() ? 'ตาม CI ' + S.rd.snap.length + ' รายการ ' + S.rd.snap.reduce((n, x) => n + (Number(x[1]) || 0), 0) + ' ชิ้น · เปิดเมื่อ ' + esc(r.zohoAt) : 'ยอด Zoho ณ ' + esc(r.zohoAt) + ' · ' + S.rd.snap.length + ' รายการที่มีสต๊อก'}</div>`;
   if (r.status === 'เปิดอยู่') {
     h += `<div class="card"><label style="margin-top:0">นับโซน / ชั้นวาง</label>
       <input id="zName" list="zl" placeholder="เช่น ชั้น A, ห้องโชว์, ทั้งคลัง" value="${esc(LS.get('whc.lastzone', ''))}">
@@ -300,7 +552,7 @@ function add(id, d, src) {
   if (d > 0) {
     beep(true);
     const scopeOut = sys == null;
-    fb(scopeOut ? 'warn' : 'ok', `<b>+1</b> ${esc(it.name)}<br><span class="sk">${esc(it.sku)} · โซนนี้ ${c} ชิ้น${scopeOut ? ' · <b>ไม่มีในยอด Zoho ของคลังนี้</b>' : ' · Zoho ทั้งคลัง ' + sys}</span>`);
+    fb(scopeOut ? 'warn' : 'ok', `<b>+1</b> ${esc(it.name)}<br><span class="sk">${esc(it.sku)} · โซนนี้ ${c} ชิ้น${scopeOut ? ' · <b>' + (isRC() ? 'ไม่อยู่ใน CI' : 'ไม่มีในยอด Zoho ของคลังนี้') + '</b>' : ' · ' + (isRC() ? 'CI ' : 'Zoho ทั้งคลัง ') + sys}</span>`);
   }
   S.flash = id;
   renderList();
@@ -311,7 +563,7 @@ function unknownCode(raw) {
   fb('bad', 'ไม่รู้จักรหัส ' + esc(raw));
   pickItem(Object.values(S.items), `ไม่รู้จักรหัส <b>${esc(raw)}</b><br><span class="sub">ค้นหารุ่นที่ถืออยู่ เลือกครั้งเดียว ระบบจำให้ทุกเครื่อง</span>`, id => {
     S.codes[norm(raw)] = [id];
-    call('whLearnCode', TOKEN, raw, id).catch(e => toast('จำรหัสไม่สำเร็จ: ' + e.message, 4000));
+    if (!/^ci:/.test(id)) call('whLearnCode', TOKEN, raw, id).catch(e => toast('จำรหัสไม่สำเร็จ: ' + e.message, 4000));
     add(id, 1, 'จับคู่');
   }, () => { const n = norm(raw); S.unk[n] = (S.unk[n] || 0) + 1; save(); fb('warn', 'นับรหัส ' + esc(raw) + ' ไว้ก่อน (ไม่รู้จัก)'); renderList(); });
 }
@@ -322,7 +574,7 @@ function pickItem(list, title, onPick, onSkip) {
     let l = list.filter(it => !q || it.sku.toLowerCase().includes(q) || it.name.toLowerCase().includes(q));
     l.sort((a, b) => ((S.sys[b.id] != null) - (S.sys[a.id] != null)) || a.sku.localeCompare(b.sku));
     $('#pkL').innerHTML = l.slice(0, 60).map(it => `<div class="it" data-id="${esc(it.id)}" style="cursor:pointer"><div class="grow"><div class="nm">${esc(it.name)}</div>
-      <div class="sk">${esc(it.sku)} · ${esc(it.brand)}${S.sys[it.id] != null ? ' · Zoho ' + S.sys[it.id] : ''}</div></div><span class="pill">เลือก</span></div>`).join('')
+      <div class="sk">${esc(it.sku)} · ${esc(it.brand)}${S.sys[it.id] != null ? ' · ' + SYS() + ' ' + S.sys[it.id] : ''}</div></div><span class="pill">เลือก</span></div>`).join('')
       || '<div class="sub">ไม่พบ</div>';
     document.querySelectorAll('#pkL [data-id]').forEach(el => el.onclick = () => { closeModal(); onPick(el.dataset.id); });
   };
@@ -375,7 +627,7 @@ function drawRows() {
   $('#lst').querySelectorAll('[data-fix]').forEach(b => b.onclick = () => {
     const c = b.dataset.fix;
     pickItem(Object.values(S.items), 'รหัส ' + esc(c) + ' คือรุ่นไหน', id => {
-      S.codes[c] = [id]; call('whLearnCode', TOKEN, c, id).catch(() => {});
+      S.codes[c] = [id]; if (!/^ci:/.test(id)) call('whLearnCode', TOKEN, c, id).catch(() => {});
       S.counts[id] = (S.counts[id] || 0) + S.unk[c]; delete S.unk[c]; save(); renderList();
     });
   });
@@ -388,7 +640,7 @@ function drawRows() {
 function rowHtml(id, c) {
   const it = S.items[id] || { name: id, sku: '', brand: '' }, sys = S.sys[id];
   return `<div class="it"${S.flash === id ? ' style="background:var(--okbg)"' : ''}><div class="grow"><div class="nm">${esc(it.name)}</div>
-    <div class="sk">${esc(it.sku)} · Zoho ${sys == null ? '<span class="pill warn">ไม่มีในคลังนี้</span>' : sys}</div></div>
+    <div class="sk">${esc(it.sku)} · ${SYS()} ${sys == null ? '<span class="pill warn">' + (isRC() ? 'ไม่อยู่ใน CI' : 'ไม่มีในคลังนี้') + '</span>' : sys}</div></div>
     <div class="qty"><button data-id="${esc(id)}" data-d="-1">−</button><input data-set="${esc(id)}" inputmode="numeric" value="${c}"><button data-id="${esc(id)}" data-d="1">+</button></div></div>`;
 }
 
@@ -423,25 +675,25 @@ async function resultView(rid) {
     $('#rl').innerHTML = rows.map(x => {
       const cls = x.status === 'ขาด' ? 'bad' : x.status === 'ตรง' ? 'ok' : 'warn';
       return `<div class="it"><div class="grow"><div class="nm">${esc(x.name)}</div><div class="sk">${esc(x.sku)} · <span class="pill ${cls}">${esc(x.status)}</span>
-        · Zoho ${x.sys} / นับ ${x.cnt}${x.zones.length ? '<br>' + esc(x.zones.join(', ')) : ''}</div></div>
+        · ${SYS()} ${x.sys} / นับ ${x.cnt}${x.zones.length ? '<br>' + esc(x.zones.join(', ')) : ''}</div></div>
         <div class="diff" style="color:var(--${cls === 'ok' ? 'ok' : cls === 'bad' ? 'bad' : 'warn'})">${x.diff > 0 ? '+' : ''}${x.diff}</div></div>`;
     }).join('') || '<div class="sub">ไม่มีรายการ</div>';
     document.querySelectorAll('#rf button').forEach(b => b.classList.toggle('on', b.dataset.f === f));
   };
   const notCounted = res.zones.length === 0;
   $('#app').innerHTML = `<div class="top"><button class="ghost" id="bk">‹ รอบนับ</button></div>
-    <h1>ผลต่าง ${esc(r.wh)}</h1><div class="sub">${esc(r.id)} · ${esc(r.scope)} · เทียบยอด${res.basis === 'physical' ? 'กายภาพ' : 'บัญชี'} Zoho ณ ${esc(r.zohoAt)}</div>
+    <h1>ผลต่าง ${esc(r.wh)}</h1><div class="sub">${esc(r.id)} · ${esc(r.scope)} · ${/^รับเข้า/.test(r.scope) ? 'เทียบกับจำนวนใน CI' : 'เทียบยอด' + (res.basis === 'physical' ? 'กายภาพ' : 'บัญชี') + ' Zoho ณ ' + esc(r.zohoAt)}</div>
     <div class="kpi" style="margin-top:10px"><div><b style="color:var(--ok)">${t.match}</b><span>ตรง</span></div>
       <div><b style="color:var(--bad)">${t.short}</b><span>ขาด ${t.shortPcs} ชิ้น</span></div>
       <div><b style="color:var(--warn)">${t.over}</b><span>เกิน ${t.overPcs} ชิ้น</span></div></div>
-    <div class="sub" style="margin-top:6px">Zoho ${t.sys} ชิ้น · นับได้ ${t.cnt} ชิ้น · อื่นๆ ${t.other} รายการ · ${res.zones.length} โซน: ${esc(res.zones.map(z => z.zone + ' (' + z.counter + ')').join(', '))}</div>
+    <div class="sub" style="margin-top:6px">${/^รับเข้า/.test(r.scope) ? 'CI' : 'Zoho'} ${t.sys} ชิ้น · นับได้ ${t.cnt} ชิ้น · อื่นๆ ${t.other} รายการ · ${res.zones.length} โซน: ${esc(res.zones.map(z => z.zone + ' (' + z.counter + ')').join(', '))}</div>
     ${open ? '<div class="card sub" style="margin-top:10px">รายการ "ขาด" รวมของที่อยู่ในโซนที่ยังไม่มีใครนับด้วย ตรวจว่านับครบทุกโซนก่อนปิดรอบ</div>' : ''}
-    <div class="tabs" id="rf">${[['diff', 'มีผลต่าง'], ['ขาด', 'ขาด'], ['เกิน', 'เกิน'], ['นอกขอบเขต', 'นอกขอบเขต'], ['รหัสไม่รู้จัก', 'ไม่รู้จัก'], ['ตรง', 'ตรง'], ['all', 'ทั้งหมด']]
+    <div class="tabs" id="rf">${[['diff', 'มีผลต่าง'], ['ขาด', 'ขาด'], ['เกิน', 'เกิน'], ['ไม่อยู่ใน CI', 'ไม่อยู่ใน CI'], ['นอกขอบเขต', 'นอกขอบเขต'], ['รหัสไม่รู้จัก', 'ไม่รู้จัก'], ['ตรง', 'ตรง'], ['all', 'ทั้งหมด']]
       .map(x => `<button data-f="${x[0]}">${x[1]}</button>`).join('')}</div>
     <div class="card list" id="rl"></div>
     ${open ? `<div class="card"><label style="margin-top:0">หมายเหตุถึงบัญชี</label><input id="cNote" placeholder="เช่น ของขาด 2 ชิ้นอยู่ที่บูธ Event A">
       <button class="pri big" id="bClose" style="margin-top:10px" ${notCounted ? 'disabled' : ''}>ปิดรอบ + ส่งสรุปให้บัญชี</button>
-      <div class="sub" style="margin-top:6px">ระบบไม่แก้ยอดใน Zoho บัญชีจะตรวจแล้วทำ Inventory Adjustment เอง</div></div>`
+      <div class="sub" style="margin-top:6px">${/^รับเข้า/.test(r.scope) ? 'ระบบไม่ได้รับของเข้า Zoho — ทีมสต๊อก/บัญชีบันทึกรับของและแจ้งซัพพลายเออร์เรื่องของขาด/เกินเอง' : 'ระบบไม่แก้ยอดใน Zoho บัญชีจะตรวจแล้วทำ Inventory Adjustment เอง'}</div></div>`
       : `<div class="card sub">ปิดรอบแล้ว ${esc(r.closedAt)} โดย ${esc(r.closedBy)}</div>`}`;
   $('#bk').onclick = () => roundView(rid);
   document.querySelectorAll('#rf button').forEach(b => b.onclick = () => { f = b.dataset.f; draw(); });
