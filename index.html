@@ -599,7 +599,14 @@ function typed() {
   pickItem(like, 'เลือกสินค้า "' + esc(v) + '"', id => add(id, 1, 'พิมพ์'));
 }
 
+// GS1-128 / UDI (เช่น สายรัดห้ามเลือด Dnipro): (01)GTIN(17)วันหมดอายุ(10)ล็อต → ใช้แค่ GTIN 14 หลัก ล็อตไหนก็ตรงรุ่นเดียวกัน
+function gs1(raw) {
+  let c = String(raw == null ? '' : raw).trim().replace(/^\]C1/, '').replace(/[\u001d()]/g, '');
+  const m = c.length >= 16 && c.match(/^01(\d{14})/);
+  return m ? m[1] : String(raw == null ? '' : raw).trim();
+}
 function handleCode(raw, src) {
+  raw = gs1(raw);
   const n = norm(raw);
   if (!n) return;
   let ids = (S.codes[n] || []).filter(id => S.items[id]);
