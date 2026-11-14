@@ -607,6 +607,7 @@ function gs1(raw) {
 }
 function handleCode(raw, src) {
   raw = gs1(raw);
+  if (/^(https?:\/\/|www\.)/i.test(raw)) { beep(false); fb('warn', 'นี่คือ QR ลิงก์เว็บ ไม่ใช่รหัสสินค้า — เล็งที่บาร์โค้ดแท่งแทน'); return; }
   const n = norm(raw);
   if (!n) return;
   let ids = (S.codes[n] || []).filter(id => S.items[id]);
